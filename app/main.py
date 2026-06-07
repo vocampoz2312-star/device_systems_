@@ -1,20 +1,25 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from app.database.connection import create_tables
 from app.routes.user_routes import router as user_router
+
+# Crear tablas al iniciar
+create_tables()
 
 app = FastAPI(
     title="device_systems API",
     description=(
         "API REST para la gestión de usuarios del sistema **device_systems**.\n\n"
         "### Características\n"
-        "- CRUD completo de usuarios\n"
+        "- CRUD completo con persistencia en **SQLite** via **SQLAlchemy**\n"
         "- Validación de datos con **Pydantic v2**\n"
         "- Manejo de errores con **HTTPException**\n"
         "- **Dependency Injection** con `Depends()`\n"
-        "- Cabeceras HTTP personalizadas\n"
-        "- Filtros por rol y estado"
+        "- Sesión de base de datos por request\n"
+        "- Filtros por rol, estado y ordenamiento\n"
+        "- Cabeceras HTTP personalizadas"
     ),
-    version="2.0.0",
+    version="3.0.0",
     contact={"name": "Equipo device_systems", "email": "soporte@devicesystems.com"},
     license_info={"name": "MIT"},
     docs_url="/docs",
@@ -28,7 +33,8 @@ app.include_router(user_router)
 def root():
     return {
         "app": "device_systems",
-        "version": "2.0.0",
+        "version": "3.0.0",
+        "database": "SQLite — device_systems.db",
         "docs": "/docs",
         "redoc": "/redoc",
         "status": "running",

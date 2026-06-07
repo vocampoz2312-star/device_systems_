@@ -1,24 +1,18 @@
 from typing import Optional
+from sqlalchemy.orm import Session
+from sqlalchemy import asc
 from fastapi import HTTPException, status
-from app.data import users_db
+
+from app.models.user_model import User
 from app.schemas.user_schema import UserCreate, UserUpdate, UserPatch
 
 
 # ──────────────────────────────────────────────
-# Servicio de usuarios — lógica de negocio
+# Helpers internos
 # ──────────────────────────────────────────────
 
-def list_users(role: Optional[str] = None, is_active: Optional[bool] = None):
-    users = users_db.get_all()
-    if role:
-        users = [u for u in users if u["role"] == role]
-    if is_active is not None:
-        users = [u for u in users if u["is_active"] == is_active]
-    return users
-
-
-def get_user(user_id: int):
-    user = users_db.get_by_id(user_id)
+def _get_or_404(db: Session, user_id: int) -> User:
+    user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -27,47 +21,77 @@ def get_user(user_id: int):
     return user
 
 
-def create_user(data: UserCreate):
-    if users_db.email_exists(data.email):
+def _check_email_duplicate(db: Session, email: str, exclude_id: Optional[int] = None):
+    query = db.query(User).filter(User.email == email.lower())
+    if exclude_id:
+        query = query.filter(User.id != exclude_id)
+    if query.first():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"El correo '{data.email}' ya está registrado.",
-        )
-    new_user = {
-        "id": 0,  # será asignado por users_db.insert
-        "name": data.name,
-        "email": data.email,
-        "role": data.role.value,
-        "is_active": data.is_active,
-    }
-    return users_db.insert(new_user)
-
-
-def update_user(user_id: int, data: UserUpdate):
-    # Verificar que el usuario existe
-    get_user(user_id)
-
-    # Verificar correo duplicado excluyendo al usuario actual
-    if users_db.email_exists(data.email, exclude_id=user_id):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"El correo '{data.email}' ya está registrado por otro usuario.",
+            detail=f"El correo '{email}' ya está registrado.",
         )
 
-    updated = users_db.update(user_id, {
-        "name": data.name,
-        "email": data.email,
-        "role": data.role.value,
-        "is_active": data.is_active,
-    })
-    return updated
+
+# ──────────────────────────────────────────────
+# Operaciones CRUD
+# ──────────────────────────────────────────────
+
+def list_users(
+    db: Session,
+    role: Optional[str] = None,
+    is_active: Optional[bool] = None,
+    order_by: str = "id",
+) -> list[User]:
+    query = db.query(User)
+    if role:
+        query = query.filter(User.role == role)
+    if is_active is not None:
+        query = query.filter(User.is_active == is_active)
+    if order_by == "name":
+        query = query.order_by(asc(User.name))
+    elif order_by == "created_at":
+        query = query.order_by(asc(User.created_at))
+    else:
+        query = query.order_by(asc(User.id))
+    return query.all()
 
 
-def patch_user(user_id: int, data: UserPatch):
-    # Verificar que el usuario existe
-    get_user(user_id)
+def get_user(db: Session, user_id: int) -> User:
+    return _get_or_404(db, user_id)
 
-    # Obtener solo los campos que fueron enviados
+
+def get_user_by_email(db: Session, email: str) -> Optional[User]:
+    return db.query(User).filter(User.email == email.lower()).first()
+
+
+def create_user(db: Session, data: UserCreate) -> User:
+    _check_email_duplicate(db, data.email)
+    user = User(
+        name=data.name,
+        email=data.email.lower(),
+        role=data.role.value,
+        is_active=data.is_active,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def update_user(db: Session, user_id: int, data: UserUpdate) -> User:
+    user = _get_or_404(db, user_id)
+    _check_email_duplicate(db, data.email, exclude_id=user_id)
+    user.name = data.name
+    user.email = data.email.lower()
+    user.role = data.role.value
+    user.is_active = data.is_active
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def patch_user(db: Session, user_id: int, data: UserPatch) -> User:
+    user = _get_or_404(db, user_id)
     changes = data.model_dump(exclude_unset=True)
 
     if not changes:
@@ -76,20 +100,23 @@ def patch_user(user_id: int, data: UserPatch):
             detail="Debes enviar al menos un campo para actualizar.",
         )
 
-    # Verificar correo duplicado si se envía email
-    if "email" in changes and users_db.email_exists(changes["email"], exclude_id=user_id):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"El correo '{changes['email']}' ya está registrado por otro usuario.",
-        )
+    if "email" in changes:
+        _check_email_duplicate(db, changes["email"], exclude_id=user_id)
+        changes["email"] = changes["email"].lower()
 
-    # Convertir role a string si viene como enum
     if "role" in changes and hasattr(changes["role"], "value"):
         changes["role"] = changes["role"].value
 
-    return users_db.update(user_id, changes)
+    for field, value in changes.items():
+        setattr(user, field, value)
+
+    db.commit()
+    db.refresh(user)
+    return user
 
 
-def delete_user(user_id: int):
-    get_user(user_id)  # lanza 404 si no existe
-    users_db.delete(user_id)
+def delete_user(db: Session, user_id: int) -> User:
+    user = _get_or_404(db, user_id)
+    db.delete(user)
+    db.commit()
+    return user
