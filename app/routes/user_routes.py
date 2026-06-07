@@ -1,80 +1,116 @@
-from fastapi import APIRouter, HTTPException, Query, Path, Response, status
+from fastapi import APIRouter, Query, Response, Depends, status
 from typing import Optional
-from app.schemas.user_schema import UserCreate, UserResponse, UserListResponse, RoleEnum
 
-router = APIRouter(
-    prefix="/users",
-    tags=["Usuarios"],
+from app.schemas.user_schema import (
+    UserCreate, UserUpdate, UserPatch,
+    UserResponse, UserListResponse, MessageResponse,
 )
+from app.services import user_service
+from app.dependencies.user_dependencies import get_user_or_404
+from app.data import users_db
 
-# ──────────────────────────────────────────────
-# Base de datos simulada en memoria
-# ──────────────────────────────────────────────
-_users_db = [
-    {"id": 1, "name": "Ana Martínez",  "email": "ana.martinez@devicesystems.com",  "role": "admin",   "is_active": True},
-    {"id": 2, "name": "Carlos Ruiz",   "email": "carlos.ruiz@devicesystems.com",   "role": "support", "is_active": True},
-    {"id": 3, "name": "Laura Gómez",   "email": "laura.gomez@devicesystems.com",   "role": "user",    "is_active": False},
-    {"id": 4, "name": "Pedro Sánchez", "email": "pedro.sanchez@devicesystems.com", "role": "user",    "is_active": True},
-]
+router = APIRouter(prefix="/users", tags=["Usuarios"])
 
-_id_counter = len(_users_db)
-
-CUSTOM_HEADERS = {
-    "X-App-Name": "device_systems",
-    "X-API-Version": "1.0",
-}
+CUSTOM_HEADERS = {"X-App-Name": "device_systems", "X-API-Version": "2.0"}
 
 
-def _add_headers(response: Response):
-    for key, value in CUSTOM_HEADERS.items():
-        response.headers[key] = value
+def _headers(response: Response):
+    for k, v in CUSTOM_HEADERS.items():
+        response.headers[k] = v
 
 
-# GET /users
-@router.get("", response_model=UserListResponse, summary="Listar usuarios", status_code=200)
+# ── GET /users ─────────────────────────────────
+@router.get(
+    "",
+    response_model=UserListResponse,
+    summary="Listar usuarios",
+    description="Retorna todos los usuarios. Permite filtrar por **rol** y/o **estado**.",
+    response_description="Lista de usuarios encontrados",
+    status_code=status.HTTP_200_OK,
+)
 def get_users(
     response: Response,
-    role: Optional[RoleEnum] = Query(default=None, description="Filtrar por rol: admin, support o user"),
+    role: Optional[str] = Query(default=None, description="Filtrar por rol: admin, support, user"),
     is_active: Optional[bool] = Query(default=None, description="Filtrar por estado activo/inactivo"),
 ):
-    _add_headers(response)
-    result = _users_db.copy()
-    if role is not None:
-        result = [u for u in result if u["role"] == role.value]
-    if is_active is not None:
-        result = [u for u in result if u["is_active"] == is_active]
-    return {"total": len(result), "users": result}
+    _headers(response)
+    users = user_service.list_users(role=role, is_active=is_active)
+    return {"total": len(users), "users": users}
 
 
-# GET /users/{user_id}
-@router.get("/{user_id}", response_model=UserResponse, summary="Obtener usuario por ID", status_code=200)
-def get_user_by_id(
-    response: Response,
-    user_id: int = Path(..., ge=1, description="ID del usuario"),
-):
-    _add_headers(response)
-    user = next((u for u in _users_db if u["id"] == user_id), None)
-    if user is None:
-        raise HTTPException(status_code=404, detail=f"Usuario con id={user_id} no encontrado.")
+# ── GET /users/{user_id} ────────────────────────
+@router.get(
+    "/{user_id}",
+    response_model=UserResponse,
+    summary="Obtener usuario por ID",
+    description="Retorna un usuario específico usando su **ID** como path parameter.",
+    response_description="Usuario encontrado",
+    status_code=status.HTTP_200_OK,
+)
+def get_user(response: Response, user=Depends(get_user_or_404)):
+    _headers(response)
     return user
 
 
-# POST /users
-@router.post("", response_model=UserResponse, summary="Crear usuario", status_code=201)
+# ── POST /users ─────────────────────────────────
+@router.post(
+    "",
+    response_model=UserResponse,
+    summary="Crear usuario",
+    description="Registra un nuevo usuario. Valida datos con Pydantic y evita correos duplicados.",
+    response_description="Usuario creado exitosamente",
+    status_code=status.HTTP_201_CREATED,
+)
 def create_user(user_in: UserCreate, response: Response):
-    global _id_counter
-    _add_headers(response)
+    _headers(response)
+    return user_service.create_user(user_in)
 
-    if any(u["email"].lower() == user_in.email.lower() for u in _users_db):
-        raise HTTPException(status_code=409, detail=f"El correo '{user_in.email}' ya está registrado.")
 
-    _id_counter += 1
-    new_user = {
-        "id": _id_counter,
-        "name": user_in.name,
-        "email": user_in.email,
-        "role": user_in.role.value,
-        "is_active": user_in.is_active,
-    }
-    _users_db.append(new_user)
-    return new_user
+# ── PUT /users/{user_id} ────────────────────────
+@router.put(
+    "/{user_id}",
+    response_model=UserResponse,
+    summary="Actualizar usuario completo (PUT)",
+    description="Reemplaza **todos** los campos de un usuario existente.",
+    response_description="Usuario actualizado",
+    status_code=status.HTTP_200_OK,
+)
+def update_user(
+    user_in: UserUpdate,
+    response: Response,
+    user=Depends(get_user_or_404),
+):
+    _headers(response)
+    return user_service.update_user(user["id"], user_in)
+
+
+# ── PATCH /users/{user_id} ──────────────────────
+@router.patch(
+    "/{user_id}",
+    response_model=UserResponse,
+    summary="Actualizar usuario parcial (PATCH)",
+    description="Modifica **solo los campos enviados** del usuario. Mínimo un campo requerido.",
+    response_description="Usuario actualizado parcialmente",
+    status_code=status.HTTP_200_OK,
+)
+def patch_user(
+    user_in: UserPatch,
+    response: Response,
+    user=Depends(get_user_or_404),
+):
+    _headers(response)
+    return user_service.patch_user(user["id"], user_in)
+
+
+# ── DELETE /users/{user_id} ─────────────────────
+@router.delete(
+    "/{user_id}",
+    summary="Eliminar usuario",
+    description="Elimina permanentemente un usuario del sistema.",
+    response_description="Usuario eliminado",
+    status_code=status.HTTP_200_OK,
+)
+def delete_user(response: Response, user=Depends(get_user_or_404)):
+    _headers(response)
+    user_service.delete_user(user["id"])
+    return {"message": f"Usuario '{user['name']}' eliminado correctamente."}
