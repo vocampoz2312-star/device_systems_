@@ -6,7 +6,8 @@ from app.schemas.user_schema import (
     UserCreate, UserUpdate, UserPatch,
     UserResponse, UserListResponse,
 )
-from app.services import user_service
+from app.schemas.loan_schema import LoanDetailResponse
+from app.services import user_service, loan_service
 from app.dependencies.database_dependency import get_db
 
 router = APIRouter(prefix="/users", tags=["Usuarios"])
@@ -98,6 +99,21 @@ def update_user(user_id: int, user_in: UserUpdate, response: Response, db: Sessi
 def patch_user(user_id: int, user_in: UserPatch, response: Response, db: Session = Depends(get_db)):
     _headers(response)
     return user_service.patch_user(db, user_id, user_in)
+
+
+# ── GET /users/{user_id}/loans ───────────────────
+@router.get(
+    "/{user_id}/loans",
+    response_model=dict,
+    summary="Préstamos de un usuario",
+    description="Retorna todos los préstamos asociados a un usuario específico.",
+    response_description="Lista de préstamos del usuario",
+    status_code=status.HTTP_200_OK,
+)
+def get_user_loans(user_id: int, response: Response, db: Session = Depends(get_db)):
+    _headers(response)
+    loans = loan_service.get_user_loans(db, user_id)
+    return {"total": len(loans), "loans": loans}
 
 
 # ── DELETE /users/{user_id} ─────────────────────

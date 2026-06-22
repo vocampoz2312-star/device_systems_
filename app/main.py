@@ -2,24 +2,30 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from app.database.connection import create_tables
 from app.routes.user_routes import router as user_router
+from app.routes.device_routes import router as device_router
+from app.routes.loan_routes import router as loan_router
 
-# Crear tablas al iniciar
-create_tables()
+# Crear tablas al iniciar (únicamente si no se usan migraciones)
+# create_tables()
 
 app = FastAPI(
     title="device_systems API",
     description=(
-        "API REST para la gestión de usuarios del sistema **device_systems**.\n\n"
+        "API REST para la gestión de **usuarios**, **dispositivos** y **préstamos** "
+        "del sistema **device_systems**.\n\n"
         "### Características\n"
-        "- CRUD completo con persistencia en **SQLite** via **SQLAlchemy**\n"
+        "- CRUD completo de usuarios, dispositivos y préstamos\n"
+        "- Persistencia en **SQLite** via **SQLAlchemy**\n"
+        "- Migraciones de base de datos con **Alembic**\n"
+        "- Asociaciones entre modelos (One-to-Many / Many-to-One)\n"
+        "- Consultas con **joins** y filtros avanzados\n"
         "- Validación de datos con **Pydantic v2**\n"
         "- Manejo de errores con **HTTPException**\n"
         "- **Dependency Injection** con `Depends()`\n"
-        "- Sesión de base de datos por request\n"
-        "- Filtros por rol, estado y ordenamiento\n"
-        "- Cabeceras HTTP personalizadas"
+        "- Cabeceras HTTP personalizadas\n"
+        "- Documentación interactiva con **Swagger/OpenAPI**"
     ),
-    version="3.0.0",
+    version="4.0.0",
     contact={"name": "Equipo device_systems", "email": "soporte@devicesystems.com"},
     license_info={"name": "MIT"},
     docs_url="/docs",
@@ -27,6 +33,8 @@ app = FastAPI(
 )
 
 app.include_router(user_router)
+app.include_router(device_router)
+app.include_router(loan_router)
 
 
 @app.get("/", tags=["Root"], summary="Bienvenida")
