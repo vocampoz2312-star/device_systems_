@@ -24,5 +24,5 @@ class Base(DeclarativeBase):
 
 def create_tables():
     """Crea todas las tablas definidas en los modelos."""
-    from app.models import user_model  # noqa: F401 — importar para registrar el modelo
+    from app.models import user_model, device_model, loan_model  # noqa: F401
     Base.metadata.create_all(bind=engine)

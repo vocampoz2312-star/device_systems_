@@ -1,6 +1,6 @@
 from datetime import datetime
 from sqlalchemy import Integer, String, Boolean, DateTime
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database.connection import Base
 
 
@@ -15,6 +15,8 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="user")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    loans = relationship("Loan", back_populates="user")
 
     def __repr__(self) -> str:
         return f"<User id={self.id} name={self.name!r} role={self.role}>"
